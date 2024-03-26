@@ -112,7 +112,7 @@ class OptimalLinearBounder:
 
             bound_diff = np.matmul(lin_grad, points) + coeffs[-1] - point_act
 
-            diffs = G * self.L1 * cell_diams
+            diffs = (1 + G) * self.L1 * (cell_diams / 2)
             diffs -= bound_diff
 
             diffs2 = np.linalg.norm(
