@@ -39,35 +39,29 @@ class OptimalLinearBounder:
     @staticmethod
     def _sample_points_regularly(bound, sample_size):
         n = bound.shape[0]
-        if n == 1:
-            cell_diam = (bound[0][1] - bound[0][0]) / sample_size
-            
-            points = np.linspace(
-                bound[0][0] + cell_diam / 2, bound[0][1] - cell_diam / 2, sample_size)
-            points = np.expand_dims(points, axis=-1)
-            cell_diams = cell_diam * np.ones((points.shape[0],))
-            return points, cell_diams
-        else:
-            region_volume = np.prod(bound[:, 1] - bound[:, 0])
-            cell_side = (region_volume / sample_size) ** (1. / n)
+        region_volume = np.prod(bound[:, 1] - bound[:, 0])
+        reference_cell_side = (region_volume / sample_size) ** (1. / n)
 
-            arrays = []
-            for b in bound:
-                num_cells = math.ceil((b[1] - b[0]) / cell_side)
-                arrays.append(np.concatenate((
-                    np.linspace(
-                        b[0] + cell_side / 2,
-                        b[0] + cell_side / 2 + cell_side * (num_cells - 1),
-                        num_cells
-                        ),
-                    np.array([b[1] - cell_side / 2])))
-                )
+        grid_arrays = []
+        cell_sides = []
+        for b in bound:
+            num_cells = math.ceil((b[1] - b[0]) / reference_cell_side)
+            assert num_cells > 1, 'Not enough points to properly fill the region'
+            current_cell_size = (b[1] - b[0]) / num_cells
+            cell_sides.append(current_cell_size)
 
-            points =  np.array(list(map(lambda a: a.flatten(), np.meshgrid(*arrays))))
-            points = np.transpose(points, axes=(1, 0))
-            cell_diam = cell_side * np.sqrt(n)
-            cell_diams = cell_diam * np.ones((points.shape[0],))
-            return points, cell_diams
+            grid_arrays.append(np.linspace(
+                b[0] + current_cell_size / 2,
+                b[1] - current_cell_size / 2,
+                num_cells))
+
+        points =  np.array(list(map(lambda a: a.flatten(), np.meshgrid(*grid_arrays))))
+        points = np.transpose(points, axes=(1, 0))
+        cell_sides = np.array(cell_sides)
+
+        cell_diam = np.linalg.norm(cell_sides)
+        side_to_diam_ratio = cell_sides / cell_diam
+        return points, cell_diam * np.ones((points.shape[0],)), side_to_diam_ratio
     
     @staticmethod
     def _get_G_bound(bound):
@@ -84,7 +78,8 @@ class OptimalLinearBounder:
 
     def _bound_one_side(self, bound, upper=True):
         G = self._get_G_bound(bound)
-        points, cell_diams = self._sample_points_regularly(bound, self.initial_number_of_points)
+        points, cell_diams, side_to_diam_ratio = self._sample_points_regularly(
+            bound, self.initial_number_of_points)
         points = points.T
 
         point_act = self.target_function(*points)
@@ -104,7 +99,7 @@ class OptimalLinearBounder:
                 ] for subcube_mask in range(1 << len(bound))
             ]
         ).T
-        diam_to_offset = (0.25 / len(bound) ** 0.5)
+        offset_to_diam_ratio = 0.25 * side_to_diam_ratio
         
         while True:
             coeffs = self._find_discrete_upper_bound(bound, points.T, point_act)
@@ -140,8 +135,9 @@ class OptimalLinearBounder:
             split_cell_diams = cell_diams[~holds]
             
             # [coords, num_subcubes, n]
-            new_points = np.expand_dims(split_points, axis=1) + \
-                np.expand_dims(subcube_offsets, axis=-1) * split_cell_diams * diam_to_offset
+            offsets = np.expand_dims(subcube_offsets, axis=-1) * split_cell_diams
+            offsets *= offset_to_diam_ratio.reshape([-1, 1, 1])
+            new_points = np.expand_dims(split_points, axis=1) + offsets
             new_cell_diams = np.tile(
                 np.expand_dims(split_cell_diams, axis=0), reps=[new_points.shape[-2], 1])
             new_cell_diams /= 2
