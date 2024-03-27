@@ -22,7 +22,7 @@ def bound_discrete_gurobi(points, values, eps):
     model.setParam('Method', 3)  # Concurrent
     model.setParam('Threads', 0)  # Use all available threads
 
-    constraint_coeffs = np.concatenate((points, np.expand_dims(np.ones(points.shape[0]), axis=1)), axis=1)
+    constraint_coeffs = np.concatenate((points, np.ones((points.shape[0], 1))), axis=1)
 
     vars = model.addMVar(constraint_coeffs.shape[1], lb=-gr.GRB.INFINITY, ub=gr.GRB.INFINITY, vtype=gr.GRB.CONTINUOUS)
     model.addMConstr(constraint_coeffs, vars, ">=", values)
@@ -38,10 +38,12 @@ def bound_discrete_scipy(points, values, eps):
         'primal_feasibility_tolerance': eps,
         'ipm_optimality_tolerance': eps,
     }
-    constraint_coeffs = np.concatenate((points, np.expand_dims(np.ones(points.shape[0]), axis=1)), axis=1)
+    constraint_coeffs = np.concatenate((points, np.ones((points.shape[0], 1))), axis=1)
     target_coeffs = np.zeros(constraint_coeffs.shape[1])
     target_coeffs[-1] = 1.
-    return linprog(target_coeffs, -constraint_coeffs, -values, bounds=[None, None], options=options).x
+    result = linprog(target_coeffs, -constraint_coeffs, -values, bounds=[None, None], options=options)
+    
+    return result.x
 
 
 def bound_discrete_bisect(points, values, eps):
@@ -133,22 +135,24 @@ def bound_discrete_linear_LP(points, values, eps):
         n_points = points.shape[0]
 
 
-def bound_discrete_linear_LP_cpp_1d(points, values, eps):
-    assert points.shape[1] == 1, 'Only 1d functions are supported'
+def bound_discrete_linear_LP_cpp(points, values, eps):
+    assert points.shape[1] <= 2, 'Only d <= 2 functions are supported'
 
-    constraint_coeffs = np.concatenate((points, np.expand_dims(np.ones(points.shape[0]), axis=1)), axis=1)
+    # Make sure tensors are C-ordered in memory so that C++ bindings work correctly
+    # TODO: enforce the correct order in the bounder to avoid copying here
+    points = np.ascontiguousarray(points)
+    values = np.ascontiguousarray(values)
+
+    constraint_coeffs = np.concatenate((points, np.ones((points.shape[0], 1))), axis=1)
     target_coeffs = np.zeros(constraint_coeffs.shape[1])
     target_coeffs[-1] = 1.
-    return solve_lp_2d(target_coeffs, -constraint_coeffs, -values)
+    if points.shape[1] == 1:
+        return solve_lp_2d(target_coeffs, -constraint_coeffs, -values)
+    elif points.shape[1] == 2:
+        return solve_lp_3d(target_coeffs, -constraint_coeffs, -values)
+    else:
+        raise NotImplementedError
 
-
-def bound_discrete_linear_LP_cpp_2d(points, values, eps):
-    assert points.shape[1] == 2, 'Only 2d functions are supported'
-
-    constraint_coeffs = np.concatenate((points, np.expand_dims(np.ones(points.shape[0]), axis=1)), axis=1)
-    target_coeffs = np.zeros(constraint_coeffs.shape[1])
-    target_coeffs[-1] = 1.
-    return solve_lp_3d(target_coeffs, -constraint_coeffs, -values)
 
 
 def bound_discrete_two_sides(region_bound, points, values, method, eps=1e-7):
@@ -169,6 +173,5 @@ BOUNDING_METHOD_NAME_TO_FUNCTION = {
     'scipy': bound_discrete_scipy,
     'bisect': bound_discrete_bisect,
     'linear': bound_discrete_linear_LP,
-    'linear_cpp_1d': bound_discrete_linear_LP_cpp_1d,
-    'linear_cpp_2d': bound_discrete_linear_LP_cpp_2d,
+    'linear_cpp': bound_discrete_linear_LP_cpp,
 }
