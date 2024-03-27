@@ -22,7 +22,7 @@ np::ndarray wrap_solve_lp(np::ndarray const &c, np::ndarray const &A, np::ndarra
     int d = c.shape(0);
     int n = b.shape(0);
     if (A.shape(0) != n || A.shape(1) != d) {
-        PyErr_SetString(PyExc_TypeError, "Incorrect input dimesions");
+        PyErr_SetString(PyExc_TypeError, "Incorrect input dimensions");
         p::throw_error_already_set();
     }
     if (d != declared_d) {

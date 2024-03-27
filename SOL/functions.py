@@ -41,7 +41,7 @@ def loglog_x(x, y):
     return loglog_dr(x)*y
 
 def loglog_tanh(x, y):
-    return loglog_dr(x)*tanh(y)
+    return loglog_dr(x) * tanh(y)
 
 def swish_grad(x):
     return np.expand_dims(sigmoid(x) + x * (1 - sigmoid(x)) * sigmoid(x), axis=-1)
